@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Activity Calendar Log</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#22c55e">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {
+      --bg: #0f0f13;
+      --card: #18181f;
+      --text: #eaeaf0;
+      --muted: #9ca3af;
+      --accent: #22c55e;
+      --border: #2a2a35;
+    }
+
+    body.light {
+      --bg: #f5f5f7;
+      --card: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #16a34a;
+      --border: #e5e7eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      transition: background 0.3s;
+    }
+
+    .app {
+      max-width: 1000px;
+      margin: auto;
+      padding: 20px;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    h1 { font-size: 1.5rem; margin: 0; }
+
+    button {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 300px 1fr;
+      gap: 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    /* ===== CALENDAR ===== */
+    .calendar-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+      text-align: center;
+    }
+
+    .day {
+      padding: 10px 0;
+      border-radius: 8px;
+      cursor: pointer;
+      position: relative;
+      font-size: 0.9rem;
+    }
+
+    .day:hover { background: rgba(255,255,255,0.05); }
+    body.light .day:hover { background: #f0f0f0; }
+
+    .day.active { outline: 2px solid var(--accent); font-weight: bold; }
+
+    .dot {
+      width: 5px;
+      height: 5px;
+      background: var(--accent);
+      border-radius: 50%;
+      position: absolute;
+      bottom: 4px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    /* ===== LOG ===== */
+    .input-box {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 15px;
+    }
+
+    input {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px;
+      border-radius: 6px;
+      outline: none;
+    }
+
+    input[type="text"] { flex: 1; }
+
+    ul { list-style: none; padding: 0; margin: 0; }
+
+    li {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.95rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .stat {
+      font-size: 0.9rem;
+      margin-top: 6px;
+      color: var(--muted);
+      text-transform: capitalize;
+    }
+
+    @media (max-width: 800px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <h1>📅 Activity Log</h1>
+    <button onclick="toggleTheme()">🌙 / ☀️</button>
+  </header>
+
+  <div class="layout">
+    <div class="card">
+      <div class="calendar-header">
+        <button onclick="prevMonth()">‹</button>
+        <strong id="monthLabel"></strong>
+        <button onclick="nextMonth()">›</button>
+      </div>
+      <div class="calendar" id="calendar"></div>
+    </div>
+
+    <div class="card">
+      <h3 id="selectedDate" style="margin-top:0"></h3>
+
+      <div class="input-box">
+        <input type="time" id="time">
+        <input type="text" id="activity" placeholder="Ngapain barusan?">
+        <button onclick="addLog()">+</button>
+      </div>
+
+      <ul id="logList"></ul>
+
+      <div id="summary" style="margin-top:15px; font-weight: 500; color: var(--accent);"></div>
+
+      <h4 style="margin-top:20px; border-top: 1px solid var(--border); padding-top: 15px;">📊 Statistik Mingguan</h4>
+      <div id="stats"></div>
+
+      <button style="margin-top:20px; background:#ef4444; width:100%" onclick="resetDay()">Hapus Aktivitas Hari Ini</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // PWA Service Worker
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(err => console.log("SW error", err));
+    });
+  }
+
+  // APP LOGIC
+  let data = JSON.parse(localStorage.getItem('activityLog')) || {};
+  let currentView = new Date();
+  let selectedDay = new Date();
+
+  function save() {
+    localStorage.setItem('activityLog', JSON.stringify(data));
+  }
+
+  function formatDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  function renderCalendar() {
+    const cal = document.getElementById('calendar');
+    cal.innerHTML = '';
+    const year = currentView.getFullYear();
+    const month = currentView.getMonth();
+    
+    document.getElementById('monthLabel').innerText = currentView.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' });
+
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // Spacer
+    for (let i = 0; i < firstDay; i++) cal.appendChild(document.createElement('div'));
+
+    for (let i = 1; i <= daysInMonth; i++) {
+      const d = new Date(year, month, i);
+      const key = formatDate(d);
+      const div = document.createElement('div');
+      div.className = 'day';
+      if (formatDate(selectedDay) === key) div.classList.add('active');
+      div.innerText = i;
+
+      if (data[key]?.length) {
+        const dot = document.createElement('div');
+        dot.className = 'dot';
+        div.appendChild(dot);
+      }
+
+      div.onclick = () => {
+        selectedDay = new Date(year, month, i);
+        renderCalendar();
+        renderLogs();
+      };
+      cal.appendChild(div);
+    }
+  }
+
+  function renderLogs() {
+    const key = formatDate(selectedDay);
+    document.getElementById('selectedDate').innerText = selectedDay.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
+    const list = document.getElementById('logList');
+    list.innerHTML = '';
+
+    const dayData = data[key] || [];
+    dayData.forEach((l, i) => {
+      const li = document.createElement('li');
+      li.innerHTML = `
+        <span>
+          <strong>${l.time}</strong> — 
+          <span contenteditable="true" onblur="saveInlineEdit(${i}, this.innerText)">${l.activity}</span>
+        </span>
+        <button style="background:#ef4444; padding:2px 6px; border-radius:6px" onclick="deleteLog(${i})">✕</button>
+      `;
+      list.appendChild(li);
+    });
+
+    renderStats();
+    renderSummary();
+  }
+
+  function addLog() {
+    const time = document.getElementById('time').value;
+    const activity = document.getElementById('activity').value;
+    if (!time || !activity) return;
+
+    const key = formatDate(selectedDay);
+    if (!data[key]) data[key] = [];
+
+    data[key].push({ time, activity });
+    data[key].sort((a,b) => a.time.localeCompare(b.time));
+    save();
+
+    document.getElementById('activity').value = '';
+    renderCalendar();
+    renderLogs();
+  }
+
+  function deleteLog(index) {
+    const key = formatDate(selectedDay);
+    data[key].splice(index, 1);
+    if (data[key].length === 0) delete data[key];
+    save();
+    renderCalendar();
+    renderLogs();
+  }
+
+  function saveInlineEdit(index, newText) {
+    const key = formatDate(selectedDay);
+    if (!newText.trim() || !data[key]) return renderLogs();
+    data[key][index].activity = newText.trim();
+    save();
+    renderStats();
+    renderSummary();
+  }
+
+  function resetDay() {
+    const key = formatDate(selectedDay);
+    if (!data[key]) return;
+    if (confirm('Hapus semua aktivitas hari ini?')) {
+      delete data[key];
+      save();
+      renderCalendar();
+      renderLogs();
+    }
+  }
+
+  function renderSummary() {
+    const key = formatDate(selectedDay);
+    const summary = document.getElementById('summary');
+    if (!data[key] || data[key].length === 0) {
+      summary.innerText = '';
+      return;
+    }
+    let count = {};
+    data[key].forEach(l => {
+      const k = l.activity.toLowerCase().trim();
+      count[k] = (count[k] || 0) + 1;
+    });
+    const top = Object.entries(count).sort((a,b) => b[1]-a[1])[0][0];
+    summary.innerText = `🧠 Fokus hari ini: ${top}`;
+  }
+
+  function renderStats() {
+    const stats = document.getElementById('stats');
+    stats.innerHTML = '';
+    let count = {};
+    const weekAgo = new Date();
+    weekAgo.setDate(weekAgo.getDate() - 7);
+
+    Object.keys(data).forEach(date => {
+      if (new Date(date) >= weekAgo) {
+        data[date].forEach(l => {
+          const k = l.activity.toLowerCase().trim();
+          count[k] = (count[k] || 0) + 1;
+        });
+      }
+    });
+
+    Object.entries(count).sort((a,b) => b[1]-a[1]).slice(0,5).forEach(([k,v]) => {
+      stats.innerHTML += `<div class="stat"><strong>${k}</strong> — ${v}x</div>`;
+    });
+  }
+
+  function prevMonth() { currentView.setMonth(currentView.getMonth()-1); renderCalendar(); }
+  function nextMonth() { currentView.setMonth(currentView.getMonth()+1); renderCalendar(); }
+  function toggleTheme() { document.body.classList.toggle('light'); }
+
+  renderCalendar();
+  renderLogs();
+</script>
+</body>
+</html>
